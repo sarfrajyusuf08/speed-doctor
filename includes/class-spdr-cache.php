@@ -67,6 +67,7 @@ class SPDR_Cache {
 		if ( empty( $options['page_cache'] ) ) {
 			// If disabled, make sure rules are removed.
 			$this->remove_htaccess_rules();
+			SPDR_Htaccess::get_instance()->remove_rules();
 			return;
 		}
 
@@ -76,13 +77,15 @@ class SPDR_Cache {
 
 		// Write .htaccess rules when enabled.
 		$this->write_htaccess_rules();
+		SPDR_Htaccess::get_instance()->write_rules();
 	}
 
 	/**
 	 * Clean expired cached static HTML files.
 	 */
 	public function clean_expired_cache() {
-		if ( ! file_exists( $this->cache_dir ) ) {
+		$html_dir = wp_normalize_path( $this->cache_dir . 'html/' );
+		if ( ! file_exists( $html_dir ) ) {
 			return;
 		}
 
@@ -90,16 +93,36 @@ class SPDR_Cache {
 		$lifespan = isset( $options['cache_lifespan'] ) ? (int) $options['cache_lifespan'] : 86400;
 		$now      = time();
 
-		$files = glob( $this->cache_dir . '*.html' );
-		if ( is_array( $files ) ) {
+		try {
+			$files = new RecursiveIteratorIterator(
+				new RecursiveDirectoryIterator( $html_dir, FilesystemIterator::SKIP_DOTS ),
+				RecursiveIteratorIterator::CHILD_FIRST
+			);
+
 			foreach ( $files as $file ) {
-				if ( is_file( $file ) ) {
-					$file_age = $now - filemtime( $file );
+				$real_path = $file->getPathname();
+				if ( $file->isFile() && $file->getExtension() === 'html' ) {
+					$file_age = $now - filemtime( $real_path );
 					if ( $file_age > $lifespan ) {
-						unlink( $file );
+						unlink( $real_path );
+					}
+				} elseif ( $file->isDir() ) {
+					// Clean up empty directories
+					$empty = true;
+					$dir_files = scandir( $real_path );
+					foreach ( $dir_files as $df ) {
+						if ( $df !== '.' && $df !== '..' ) {
+							$empty = false;
+							break;
+						}
+					}
+					if ( $empty ) {
+						rmdir( $real_path );
 					}
 				}
 			}
+		} catch ( Exception $e ) {
+			// Fail-safe default
 		}
 	}
 
@@ -202,23 +225,15 @@ class SPDR_Cache {
 			return true;
 		}
 
+		$html_dir   = wp_normalize_path( $this->cache_dir . 'html/' );
 		$assets_dir = wp_normalize_path( $this->cache_dir . 'assets/' );
 
 		switch ( $type ) {
 			case 'html':
-				// Delete HTML files only
-				$files = glob( $this->cache_dir . '*.html' );
-				if ( is_array( $files ) ) {
-					foreach ( $files as $file ) {
-						if ( is_file( $file ) ) {
-							unlink( $file );
-						}
-					}
-				}
+				$this->delete_dir_contents_recursive( $html_dir );
 				break;
 
 			case 'css':
-				// Delete CSS files from assets
 				if ( is_dir( $assets_dir ) ) {
 					$files = glob( $assets_dir . '*.css' );
 					if ( is_array( $files ) ) {
@@ -232,7 +247,6 @@ class SPDR_Cache {
 				break;
 
 			case 'js':
-				// Delete JS files from assets
 				if ( is_dir( $assets_dir ) ) {
 					$files = glob( $assets_dir . '*.js' );
 					if ( is_array( $files ) ) {
@@ -247,30 +261,41 @@ class SPDR_Cache {
 
 			case 'all':
 			default:
-				// Delete HTML files
-				$files = glob( $this->cache_dir . '*.html' );
-				if ( is_array( $files ) ) {
-					foreach ( $files as $file ) {
-						if ( is_file( $file ) ) {
-							unlink( $file );
-						}
-					}
-				}
-				// Delete all assets
-				if ( is_dir( $assets_dir ) ) {
-					$files = glob( $assets_dir . '*.*' );
-					if ( is_array( $files ) ) {
-						foreach ( $files as $file ) {
-							if ( is_file( $file ) && 'index.php' !== basename( $file ) ) {
-								unlink( $file );
-							}
-						}
-					}
-				}
+				$this->delete_dir_contents_recursive( $html_dir );
+				$this->delete_dir_contents_recursive( $assets_dir );
 				break;
 		}
 
 		return true;
+	}
+
+	/**
+	 * Recursively delete folder contents.
+	 *
+	 * @param string $dir Path to directory.
+	 */
+	private function delete_dir_contents_recursive( $dir ) {
+		if ( ! is_dir( $dir ) ) {
+			return;
+		}
+
+		try {
+			$files = new RecursiveIteratorIterator(
+				new RecursiveDirectoryIterator( $dir, FilesystemIterator::SKIP_DOTS ),
+				RecursiveIteratorIterator::CHILD_FIRST
+			);
+
+			foreach ( $files as $file ) {
+				$real_path = $file->getPathname();
+				if ( $file->isDir() ) {
+					rmdir( $real_path );
+				} else {
+					unlink( $real_path );
+				}
+			}
+		} catch ( Exception $e ) {
+			// Fail-safe
+		}
 	}
 
 	/**
@@ -279,7 +304,6 @@ class SPDR_Cache {
 	 * @param int $post_id Post ID.
 	 */
 	public function purge_post_cache( $post_id ) {
-		// Ignore revisions or autosaves.
 		if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
 			return;
 		}
@@ -289,16 +313,38 @@ class SPDR_Cache {
 			return;
 		}
 
-		$file_path = $this->get_cache_file_path( $url );
-		if ( file_exists( $file_path ) ) {
-			unlink( $file_path );
+		$url_path  = wp_parse_url( $url, PHP_URL_PATH );
+		$path_slug = trim( $url_path, '/' );
+
+		if ( empty( $path_slug ) ) {
+			// Homepage
+			$dir = wp_normalize_path( $this->cache_dir . 'html/' );
+			$files = glob( $dir . 'index*.html' );
+			if ( is_array( $files ) ) {
+				foreach ( $files as $file ) {
+					unlink( $file );
+				}
+			}
+		} else {
+			// Subpage folder
+			$dir = wp_normalize_path( $this->cache_dir . 'html/' . $path_slug . '/' );
+			if ( is_dir( $dir ) ) {
+				$files = glob( $dir . 'index*.html' );
+				if ( is_array( $files ) ) {
+					foreach ( $files as $file ) {
+						unlink( $file );
+					}
+				}
+			}
 		}
 
-		// Also clear home page cache as it likely lists recent posts.
-		$home_url  = home_url( '/' );
-		$home_path = $this->get_cache_file_path( $home_url );
-		if ( file_exists( $home_path ) ) {
-			unlink( $home_path );
+		// Also clear homepage cache
+		$home_dir = wp_normalize_path( $this->cache_dir . 'html/' );
+		$home_files = glob( $home_dir . 'index*.html' );
+		if ( is_array( $home_files ) ) {
+			foreach ( $home_files as $file ) {
+				unlink( $file );
+			}
 		}
 	}
 
@@ -572,8 +618,9 @@ class SPDR_Cache {
 		}
 
 		// Ensure directory exists.
-		if ( ! file_exists( $this->cache_dir ) ) {
-			wp_mkdir_p( $this->cache_dir );
+		$dir = dirname( $file_path );
+		if ( ! file_exists( $dir ) ) {
+			wp_mkdir_p( $dir );
 		}
 
 		// Append a signature comment for verification.
@@ -596,23 +643,8 @@ class SPDR_Cache {
 	 * @return string Cache file path.
 	 */
 	public function get_cache_file_path( $url ) {
-		// Clean and parse URL to generate a unique filename.
 		$url_path  = wp_parse_url( $url, PHP_URL_PATH );
-		$host      = wp_parse_url( $url, PHP_URL_HOST );
 		$path_slug = trim( $url_path, '/' );
-
-		if ( empty( $path_slug ) ) {
-			$path_slug = 'index';
-		} else {
-			// Replace slashes with dashes to keep a flat file structure.
-			$path_slug = str_replace( '/', '-', $path_slug );
-		}
-
-		// Sanitize slug safely to support multi-language characters.
-		$clean_slug = sanitize_key( $path_slug );
-		if ( empty( $clean_slug ) ) {
-			$clean_slug = 'page';
-		}
 
 		$options = get_option( 'spdr_settings' );
 		$suffix  = '';
@@ -627,10 +659,13 @@ class SPDR_Cache {
 			$suffix .= '-loggedin';
 		}
 
-		// Create a safe, unique filename.
-		$filename = md5( $host . '-' . $url_path ) . '-' . $clean_slug . $suffix . '.html';
-
-		return wp_normalize_path( $this->cache_dir . $filename );
+		if ( empty( $path_slug ) ) {
+			$filename = 'index' . $suffix . '.html';
+			return wp_normalize_path( $this->cache_dir . 'html/' . $filename );
+		} else {
+			$filename = 'index' . $suffix . '.html';
+			return wp_normalize_path( $this->cache_dir . 'html/' . $path_slug . '/' . $filename );
+		}
 	}
 
 	/**

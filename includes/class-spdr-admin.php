@@ -178,6 +178,9 @@ class SPDR_Admin {
 
 		update_option( 'spdr_settings', $sanitized );
 
+		// Configure rewrite rules and directories immediately.
+		SPDR_Cache::get_instance()->maybe_setup_cache_dir();
+
 		if ( ! empty( $old_options['page_cache'] ) && empty( $sanitized['page_cache'] ) ) {
 			SPDR_Cache::get_instance()->purge_all_cache();
 		}

@@ -56,6 +56,7 @@ class SPDR {
 		require_once SPDR_PATH . 'includes/class-spdr-assets.php';
 		require_once SPDR_PATH . 'includes/class-spdr-media.php';
 		require_once SPDR_PATH . 'includes/class-spdr-admin.php';
+		require_once SPDR_PATH . 'includes/class-spdr-htaccess.php';
 	}
 
 	/**
