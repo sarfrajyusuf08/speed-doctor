@@ -66,8 +66,16 @@ class SPDR_Cache {
 	 * Setup cache directory if it does not exist.
 	 */
 	public function maybe_setup_cache_dir() {
-		// Only run when settings have page cache enabled.
 		$options = get_option( 'spdr_settings' );
+
+		// Configure GZIP rewrite rules
+		if ( ! empty( $options['gzip_compression'] ) ) {
+			SPDR_Htaccess::get_instance()->write_gzip_rules();
+		} else {
+			SPDR_Htaccess::get_instance()->remove_gzip_rules();
+		}
+
+		// Only run when settings have page cache enabled.
 		if ( empty( $options['page_cache'] ) ) {
 			// If disabled, make sure rules are removed.
 			$this->remove_htaccess_rules();

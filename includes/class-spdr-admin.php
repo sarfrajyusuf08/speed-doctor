@@ -116,6 +116,7 @@ class SPDR_Admin {
 					'db_cleanup_schedule'      => 'disabled',
 					'preload_enable'           => 0,
 					'preload_pages_per_minute' => 10,
+					'gzip_compression'          => 0,
 					'preload_types'            => array( 'homepage', 'posts', 'pages' ),
 				),
 			)
@@ -145,6 +146,7 @@ class SPDR_Admin {
 			'lazy_load_iframes',
 			'add_img_dimensions',
 			'preload_enable',
+			'gzip_compression',
 		);
 
 		foreach ( $checkbox_keys as $key ) {

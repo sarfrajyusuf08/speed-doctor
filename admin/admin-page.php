@@ -51,6 +51,7 @@ function spdr_admin_page_display() {
 	$preload_enable           = ! empty( $options['preload_enable'] ) ? 1 : 0;
 	$preload_pages_per_minute = isset( $options['preload_pages_per_minute'] ) ? (int) $options['preload_pages_per_minute'] : 10;
 	$preload_types            = isset( $options['preload_types'] ) ? (array) $options['preload_types'] : array( 'homepage', 'posts', 'pages' );
+	$gzip_compression         = ! empty( $options['gzip_compression'] ) ? 1 : 0;
 	?>
 	<div class="wrap spdr-admin-wrap" id="spdr-wrap">
 		<!-- Theme Detection Script to avoid flash of dark mode (FOUC) -->
@@ -428,6 +429,18 @@ function spdr_admin_page_display() {
 									<p class="spdr-field-desc"><?php echo esc_html__( 'List script files or keywords (one per line) to exclude from minification/combination/defer.', 'speed-doctor' ); ?></p>
 								</div>
 								<textarea id="exclude_js" name="spdr_settings[exclude_js]" class="spdr-textarea-field" rows="4"><?php echo esc_textarea( $exclude_js ); ?></textarea>
+							</div>
+
+							<!-- GZIP Compression -->
+							<div class="spdr-option-row">
+								<div class="spdr-option-info">
+									<label class="spdr-option-label" for="gzip_compression"><?php echo esc_html__( 'GZIP Compression', 'speed-doctor' ); ?></label>
+									<p class="spdr-field-desc"><?php echo esc_html__( 'Pre-compress assets and configure server-level compression to shrink files by up to 70%.', 'speed-doctor' ); ?></p>
+								</div>
+								<label class="spdr-toggle-switch">
+									<input type="checkbox" id="gzip_compression" name="spdr_settings[gzip_compression]" value="1" <?php checked( 1, $gzip_compression ); ?> />
+									<span class="spdr-slider"></span>
+								</label>
 							</div>
 						</div>
 					</div>
@@ -829,6 +842,9 @@ function spdr_admin_page_display() {
 					}
 					if (document.getElementById('remove_ver_query') && document.getElementById('remove_ver_query').checked) {
 						score += 3;
+					}
+					if (document.getElementById('gzip_compression') && document.getElementById('gzip_compression').checked) {
+						score += 8;
 					}
 
 					// Cap score at 100

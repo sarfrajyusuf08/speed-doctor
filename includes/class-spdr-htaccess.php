@@ -121,4 +121,92 @@ class SPDR_Htaccess {
 
 		return insert_with_markers( $htaccess_file, 'SpeedDoctorCache', array() );
 	}
+
+	/**
+	 * Write GZIP compression and pre-compressed asset serving rules to .htaccess.
+	 *
+	 * @return bool True on success, false on failure.
+	 */
+	public function write_gzip_rules() {
+		// Only run on Apache/LiteSpeed.
+		if ( ! isset( $_SERVER['SERVER_SOFTWARE'] ) || ( false === strpos( $_SERVER['SERVER_SOFTWARE'], 'Apache' ) && false === strpos( $_SERVER['SERVER_SOFTWARE'], 'LiteSpeed' ) ) ) {
+			return false;
+		}
+
+		$htaccess_file = wp_normalize_path( ABSPATH . '.htaccess' );
+
+		if ( ! is_writable( $htaccess_file ) && ! is_writable( dirname( $htaccess_file ) ) ) {
+			return false;
+		}
+
+		$rules = array();
+
+		// 1. Deflate on-the-fly compression for dynamic content
+		$rules[] = '<IfModule mod_deflate.c>';
+		$rules[] = '    AddType x-font/woff .woff';
+		$rules[] = '    AddType x-font/ttf .ttf';
+		$rules[] = '    AddOutputFilterByType DEFLATE image/svg+xml';
+		$rules[] = '    AddOutputFilterByType DEFLATE text/plain';
+		$rules[] = '    AddOutputFilterByType DEFLATE text/html';
+		$rules[] = '    AddOutputFilterByType DEFLATE text/xml';
+		$rules[] = '    AddOutputFilterByType DEFLATE text/css';
+		$rules[] = '    AddOutputFilterByType DEFLATE text/javascript';
+		$rules[] = '    AddOutputFilterByType DEFLATE application/xml';
+		$rules[] = '    AddOutputFilterByType DEFLATE application/xhtml+xml';
+		$rules[] = '    AddOutputFilterByType DEFLATE application/rss+xml';
+		$rules[] = '    AddOutputFilterByType DEFLATE application/javascript';
+		$rules[] = '    AddOutputFilterByType DEFLATE application/x-javascript';
+		$rules[] = '    AddOutputFilterByType DEFLATE application/x-font-ttf';
+		$rules[] = '    AddOutputFilterByType DEFLATE x-font/ttf';
+		$rules[] = '    AddOutputFilterByType DEFLATE application/vnd.ms-fontobject';
+		$rules[] = '    AddOutputFilterByType DEFLATE font/opentype font/ttf font/eot font/otf';
+		$rules[] = '</IfModule>';
+
+		// 2. Direct serving of pre-compressed combined/minified assets (.css.gz / .js.gz)
+		$rules[] = '<IfModule mod_rewrite.c>';
+		$rules[] = '    RewriteEngine On';
+		$rules[] = '    ';
+		$rules[] = '    # Check if client accepts gzip encoding';
+		$rules[] = '    RewriteCond %{HTTP:Accept-encoding} gzip';
+		$rules[] = '    ';
+		$rules[] = '    # Verify if pre-compressed asset clone exists';
+		$rules[] = '    RewriteCond %{REQUEST_FILENAME}\.gz -s';
+		$rules[] = '    ';
+		$rules[] = '    # Rewrite asset link to serve gzip clone directly';
+		$rules[] = '    RewriteRule ^(.*)\.(css|js)$ $1\.$2\.gz [QSA,L]';
+		$rules[] = '    ';
+		$rules[] = '    # Configure headers to prevent double compression and enforce correct mime type';
+		$rules[] = '    RewriteRule \.css\.gz$ - [T=text/css,E=no-gzip:1,E=FORCE_GZIP]';
+		$rules[] = '    RewriteRule \.js\.gz$ - [T=text/javascript,E=no-gzip:1,E=FORCE_GZIP]';
+		$rules[] = '    ';
+		$rules[] = '    <FilesMatch "\.(css|js)\.gz$">';
+		$rules[] = '        Header set Content-Encoding gzip env=FORCE_GZIP';
+		$rules[] = '        Header append Vary Accept-Encoding';
+		$rules[] = '    </FilesMatch>';
+		$rules[] = '</IfModule>';
+
+		if ( ! function_exists( 'insert_with_markers' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/misc.php';
+		}
+
+		return insert_with_markers( $htaccess_file, 'SpeedDoctorGzip', $rules );
+	}
+
+	/**
+	 * Remove GZIP rewrite rules from .htaccess.
+	 *
+	 * @return bool True on success, false on failure.
+	 */
+	public function remove_gzip_rules() {
+		$htaccess_file = wp_normalize_path( ABSPATH . '.htaccess' );
+		if ( ! file_exists( $htaccess_file ) || ! is_writable( $htaccess_file ) ) {
+			return false;
+		}
+
+		if ( ! function_exists( 'insert_with_markers' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/misc.php';
+		}
+
+		return insert_with_markers( $htaccess_file, 'SpeedDoctorGzip', array() );
+	}
 }

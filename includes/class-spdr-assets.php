@@ -172,7 +172,7 @@ class SPDR_Assets {
 					$css_content = file_get_contents( $local_path );
 					if ( $css_content ) {
 						$minified_css = self::minify_css( $css_content );
-						file_put_contents( $cache_file_path, $minified_css );
+						self::save_cached_asset( $cache_file_path, $minified_css );
 					}
 				}
 
@@ -293,7 +293,7 @@ class SPDR_Assets {
 					$combined_code = self::minify_js( $combined_code );
 				}
 
-				file_put_contents( $cache_file_path, $combined_code );
+				self::save_cached_asset( $cache_file_path, $combined_code );
 			}
 
 			if ( file_exists( $cache_file_path ) ) {
@@ -321,7 +321,7 @@ class SPDR_Assets {
 					$content = file_get_contents( $script['local_path'] );
 					if ( $content ) {
 						$minified = self::minify_js( $content );
-						file_put_contents( $cache_file_path, $minified );
+						self::save_cached_asset( $cache_file_path, $minified );
 					}
 				}
 
@@ -590,5 +590,25 @@ class SPDR_Assets {
 		$html = str_replace( '</body>', $loader_script . "\n" . '</body>', $html );
 
 		return $html;
+	}
+
+	/**
+	 * Save cached asset file and generate pre-compressed gzip version if enabled.
+	 *
+	 * @param string $file_path Absolute file path on disk.
+	 * @param string $content Code content.
+	 */
+	public static function save_cached_asset( $file_path, $content ) {
+		// Save original minified asset.
+		file_put_contents( $file_path, $content );
+
+		// Check if gzip option is enabled.
+		$options = get_option( 'spdr_settings' );
+		if ( ! empty( $options['gzip_compression'] ) && function_exists( 'gzencode' ) ) {
+			$gzipped = gzencode( $content, 9 );
+			if ( false !== $gzipped ) {
+				file_put_contents( $file_path . '.gz', $gzipped );
+			}
+		}
 	}
 }
