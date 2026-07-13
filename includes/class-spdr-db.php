@@ -47,7 +47,7 @@ class SPDR_DB {
 
 		// Cron actions.
 		add_filter( 'cron_schedules', array( $this, 'add_weekly_cron_schedule' ) );
-		add_action( 'spdr_db_optimization_cron', array( $this, 'run_automated_optimization' ) );
+		add_action( 'spdr_db_cleanup_cron', array( $this, 'run_automated_optimization' ) );
 	}
 
 	/**
@@ -75,7 +75,7 @@ class SPDR_DB {
 	public function delete_revisions() {
 		global $wpdb;
 
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( 'manage_options' ) && ! wp_doing_cron() ) {
 			return 0;
 		}
 
@@ -94,7 +94,7 @@ class SPDR_DB {
 	public function delete_auto_drafts() {
 		global $wpdb;
 
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( 'manage_options' ) && ! wp_doing_cron() ) {
 			return 0;
 		}
 
@@ -113,7 +113,7 @@ class SPDR_DB {
 	public function delete_comments() {
 		global $wpdb;
 
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( 'manage_options' ) && ! wp_doing_cron() ) {
 			return 0;
 		}
 
@@ -135,7 +135,7 @@ class SPDR_DB {
 	public function delete_expired_transients() {
 		global $wpdb;
 
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( 'manage_options' ) && ! wp_doing_cron() ) {
 			return 0;
 		}
 
@@ -170,7 +170,7 @@ class SPDR_DB {
 	public function optimize_tables() {
 		global $wpdb;
 
-		if ( ! current_user_can( 'manage_options' ) ) {
+		if ( ! current_user_can( 'manage_options' ) && ! wp_doing_cron() ) {
 			return 0;
 		}
 
@@ -205,8 +205,9 @@ class SPDR_DB {
 	 * Run automated background optimizations via weekly cron.
 	 */
 	public function run_automated_optimization() {
-		$options = get_option( 'spdr_settings' );
-		if ( empty( $options['db_optimization'] ) ) {
+		$options  = get_option( 'spdr_settings' );
+		$schedule = isset( $options['db_cleanup_schedule'] ) ? $options['db_cleanup_schedule'] : 'disabled';
+		if ( 'disabled' === $schedule ) {
 			return;
 		}
 

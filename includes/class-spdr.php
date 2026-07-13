@@ -74,6 +74,22 @@ class SPDR {
 		SPDR_DB::get_instance();
 		SPDR_Assets::get_instance();
 		SPDR_Media::get_instance();
+
+		// Schedule Database Cleanup WP-Cron dynamically.
+		$options  = get_option( 'spdr_settings' );
+		$schedule = isset( $options['db_cleanup_schedule'] ) ? $options['db_cleanup_schedule'] : 'disabled';
+		$current  = wp_get_schedule( 'spdr_db_cleanup_cron' );
+
+		if ( 'disabled' !== $schedule ) {
+			if ( $current !== $schedule ) {
+				wp_clear_scheduled_hook( 'spdr_db_cleanup_cron' );
+				wp_schedule_event( time(), $schedule, 'spdr_db_cleanup_cron' );
+			}
+		} else {
+			if ( false !== $current ) {
+				wp_clear_scheduled_hook( 'spdr_db_cleanup_cron' );
+			}
+		}
 	}
 
 	/**
@@ -119,49 +135,33 @@ class SPDR {
 				'type'              => 'array',
 				'sanitize_callback' => array( $this, 'sanitize_settings' ),
 				'default'           => array(
-					'page_cache'      => 0,
-					'db_optimization' => 0,
-					'minify_html'     => 0,
-					'minify_css'      => 0,
-					'minify_js'       => 0,
-					'combine_js'      => 0,
-					'defer_js'        => 0,
-					'lazy_load'       => 0,
-					'cdn_enable'      => 0,
-					'cdn_url'         => '',
-					'cdn_exclude'     => '',
+					'page_cache'         => 0,
+					'db_optimization'    => 0,
+					'minify_html'        => 0,
+					'minify_css'         => 0,
+					'minify_js'          => 0,
+					'combine_js'         => 0,
+					'defer_js'           => 0,
+					'lazy_load'          => 0,
+					'cdn_enable'         => 0,
+					'cdn_url'            => '',
+					'cdn_exclude'        => '',
 					'heartbeat_behavior' => 'default',
-					'remove_ver_query' => 0,
-					'disable_emojis'   => 0,
+					'remove_ver_query'   => 0,
+					'disable_emojis'     => 0,
+					'mobile_cache'       => 0,
+					'logged_in_cache'    => 0,
+					'cache_lifespan'     => 86400,
+					'exclude_css'        => '',
+					'exclude_js'         => '',
+					'delay_js'           => 0,
+					'lazy_load_iframes'  => 0,
+					'lcp_exclude_count'  => 1,
+					'add_img_dimensions' => 0,
+					'db_cleanup_schedule' => 'disabled',
 				),
 			)
 		);
-
-		add_settings_section(
-			'spdr_settings_section_general',
-			esc_html__( 'General Settings', 'speed-doctor' ),
-			array( $this, 'settings_section_callback' ),
-			'speed-doctor'
-		);
-
-		add_settings_field(
-			'spdr_field_page_cache',
-			esc_html__( 'Page Caching', 'speed-doctor' ),
-			array( $this, 'field_checkbox_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'page_cache',
-				'description' => esc_html__( 'Generate static HTML files for faster load times.', 'speed-doctor' ),
-			)
-		);
-	}
-
-	/**
-	 * Section callback.
-	 */
-	public function settings_section_callback() {
-		echo '<p>' . esc_html__( 'Configure the general performance settings below.', 'speed-doctor' ) . '</p>';
 	}
 
 	/**
@@ -222,6 +222,11 @@ class SPDR {
 			'cdn_enable',
 			'remove_ver_query',
 			'disable_emojis',
+			'mobile_cache',
+			'logged_in_cache',
+			'delay_js',
+			'lazy_load_iframes',
+			'add_img_dimensions',
 		);
 
 		foreach ( $checkbox_keys as $key ) {
@@ -229,10 +234,18 @@ class SPDR {
 		}
 
 		$sanitized['cdn_url']     = isset( $input['cdn_url'] ) ? sanitize_text_field( $input['cdn_url'] ) : '';
-		$sanitized['cdn_exclude'] = isset( $input['cdn_exclude'] ) ? sanitize_text_field( $input['cdn_exclude'] ) : '';
+		$sanitized['cdn_exclude'] = isset( $input['cdn_exclude'] ) ? sanitize_textarea_field( $input['cdn_exclude'] ) : '';
+		$sanitized['exclude_css'] = isset( $input['exclude_css'] ) ? sanitize_textarea_field( $input['exclude_css'] ) : '';
+		$sanitized['exclude_js']  = isset( $input['exclude_js'] ) ? sanitize_textarea_field( $input['exclude_js'] ) : '';
 
 		$allowed_heartbeat = array( 'default', 'throttle', 'disable_frontend', 'disable_everywhere' );
 		$sanitized['heartbeat_behavior'] = isset( $input['heartbeat_behavior'] ) && in_array( $input['heartbeat_behavior'], $allowed_heartbeat, true ) ? $input['heartbeat_behavior'] : 'default';
+
+		$sanitized['cache_lifespan'] = isset( $input['cache_lifespan'] ) ? intval( $input['cache_lifespan'] ) : 86400;
+		$sanitized['lcp_exclude_count'] = isset( $input['lcp_exclude_count'] ) ? intval( $input['lcp_exclude_count'] ) : 1;
+
+		$allowed_schedules = array( 'disabled', 'daily', 'weekly' );
+		$sanitized['db_cleanup_schedule'] = isset( $input['db_cleanup_schedule'] ) && in_array( $input['db_cleanup_schedule'], $allowed_schedules, true ) ? $input['db_cleanup_schedule'] : 'disabled';
 
 		return $sanitized;
 	}

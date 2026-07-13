@@ -86,8 +86,8 @@ class SPDR_Cache {
 			return;
 		}
 
-		// Set default cache lifespan to 10 hours (36,000 seconds).
-		$lifespan = 36000;
+		$options  = get_option( 'spdr_settings' );
+		$lifespan = isset( $options['cache_lifespan'] ) ? (int) $options['cache_lifespan'] : 86400;
 		$now      = time();
 
 		$files = glob( $this->cache_dir . '*.html' );
@@ -459,7 +459,10 @@ class SPDR_Cache {
 	public function should_bypass_cache() {
 		// 1. Check if user is logged in.
 		if ( is_user_logged_in() ) {
-			return true;
+			$options = get_option( 'spdr_settings' );
+			if ( empty( $options['logged_in_cache'] ) ) {
+				return true;
+			}
 		}
 
 		// 2. Check if request method is GET.
@@ -560,6 +563,9 @@ class SPDR_Cache {
 			if ( ! empty( $options['minify_js'] ) || ! empty( $options['combine_js'] ) ) {
 				$buffer = $assets->process_html_js( $buffer );
 			}
+			if ( ! empty( $options['delay_js'] ) ) {
+				$buffer = $assets->delay_javascript( $buffer );
+			}
 			if ( ! empty( $options['minify_html'] ) ) {
 				$buffer = SPDR_Assets::minify_html( $buffer );
 			}
@@ -608,8 +614,21 @@ class SPDR_Cache {
 			$clean_slug = 'page';
 		}
 
+		$options = get_option( 'spdr_settings' );
+		$suffix  = '';
+
+		// Separate mobile cache files
+		if ( ! empty( $options['mobile_cache'] ) && wp_is_mobile() ) {
+			$suffix .= '-mobile';
+		}
+
+		// Separate logged-in cache files
+		if ( ! empty( $options['logged_in_cache'] ) && is_user_logged_in() ) {
+			$suffix .= '-loggedin';
+		}
+
 		// Create a safe, unique filename.
-		$filename = md5( $host . '-' . $url_path ) . '-' . $clean_slug . '.html';
+		$filename = md5( $host . '-' . $url_path ) . '-' . $clean_slug . $suffix . '.html';
 
 		return wp_normalize_path( $this->cache_dir . $filename );
 	}

@@ -40,8 +40,6 @@ class SPDR_Media {
 	 * Constructor.
 	 */
 	private function __construct() {
-		add_action( 'admin_init', array( $this, 'register_media_settings' ) );
-		
 		// Hook output buffering for dynamic page rendering if media or CDN features are active
 		add_action( 'template_redirect', array( $this, 'maybe_start_media_buffer' ), 3 );
 
@@ -56,101 +54,14 @@ class SPDR_Media {
 		$this->init_emoji_remover();
 	}
 
-	/**
-	 * Register Settings API fields for Media & CDN Optimization.
-	 */
-	public function register_media_settings() {
-		add_settings_field(
-			'spdr_field_lazy_load',
-			esc_html__( 'Lazy Loading', 'speed-doctor' ),
-			array( SPDR::get_instance(), 'field_checkbox_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'lazy_load',
-				'description' => esc_html__( 'Add loading="lazy" to images/iframes and preload="none" to video elements to speed up page rendering.', 'speed-doctor' ),
-			)
-		);
 
-		add_settings_field(
-			'spdr_field_cdn_enable',
-			esc_html__( 'CDN Integration', 'speed-doctor' ),
-			array( SPDR::get_instance(), 'field_checkbox_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'cdn_enable',
-				'description' => esc_html__( 'Rewrite enqueued static asset URLs to use a custom CDN hostname.', 'speed-doctor' ),
-			)
-		);
-
-		add_settings_field(
-			'spdr_field_cdn_url',
-			esc_html__( 'CDN Base URL', 'speed-doctor' ),
-			array( SPDR::get_instance(), 'field_text_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'cdn_url',
-				'description' => esc_html__( 'Enter your CDN domain (e.g. https://cdn.example.com or //cdn.example.com).', 'speed-doctor' ),
-			)
-		);
-
-		add_settings_field(
-			'spdr_field_cdn_exclude',
-			esc_html__( 'CDN Exclusions', 'speed-doctor' ),
-			array( SPDR::get_instance(), 'field_text_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'cdn_exclude',
-				'description' => esc_html__( 'Enter comma-separated paths or filenames to exclude from CDN rewriting.', 'speed-doctor' ),
-			)
-		);
-
-		add_settings_field(
-			'spdr_field_heartbeat_behavior',
-			esc_html__( 'Heartbeat API Control', 'speed-doctor' ),
-			array( $this, 'field_heartbeat_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'heartbeat_behavior',
-				'description' => esc_html__( 'Manage the frequency of background AJAX requests made by the WordPress Heartbeat API.', 'speed-doctor' ),
-			)
-		);
-
-		add_settings_field(
-			'spdr_field_remove_ver_query',
-			esc_html__( 'Remove Query Strings', 'speed-doctor' ),
-			array( SPDR::get_instance(), 'field_checkbox_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'remove_ver_query',
-				'description' => esc_html__( 'Remove version query strings (e.g. ?ver=x.x) from enqueued static styles and scripts.', 'speed-doctor' ),
-			)
-		);
-
-		add_settings_field(
-			'spdr_field_disable_emojis',
-			esc_html__( 'Disable Emojis', 'speed-doctor' ),
-			array( SPDR::get_instance(), 'field_checkbox_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'disable_emojis',
-				'description' => esc_html__( 'Remove default WordPress core emoji scripts, styles, and resource prefetch hints to speed up page loads.', 'speed-doctor' ),
-			)
-		);
-	}
 
 	/**
 	 * Start dynamic media optimization buffer if caching is bypassed or inactive.
 	 */
 	public function maybe_start_media_buffer() {
 		$options = get_option( 'spdr_settings' );
-		if ( empty( $options['lazy_load'] ) && empty( $options['cdn_enable'] ) ) {
+		if ( empty( $options['lazy_load'] ) && empty( $options['lazy_load_iframes'] ) && empty( $options['add_img_dimensions'] ) && empty( $options['cdn_enable'] ) ) {
 			return;
 		}
 
@@ -170,6 +81,7 @@ class SPDR_Media {
 	 */
 	public function lazy_load_output_callback( $buffer ) {
 		$buffer = $this->lazy_load_media( $buffer );
+		$buffer = $this->add_image_dimensions( $buffer );
 		$buffer = $this->rewrite_cdn_urls( $buffer );
 		return $buffer;
 	}
@@ -182,51 +94,67 @@ class SPDR_Media {
 	 */
 	public function lazy_load_media( $html ) {
 		$options = get_option( 'spdr_settings' );
-		if ( empty( $options['lazy_load'] ) ) {
+		if ( empty( $options['lazy_load'] ) && empty( $options['lazy_load_iframes'] ) ) {
 			return $html;
 		}
 
 		// 1. Process <img> tags
-		$html = preg_replace_callback(
-			'/<img\b([^>]*)/is',
-			function ( $matches ) {
-				$img_attributes = $matches[1];
-				// Skip if loading attribute is already present
-				if ( false === strpos( $img_attributes, ' loading=' ) ) {
-					$img_attributes .= ' loading="lazy"';
-				}
-				return '<img' . $img_attributes;
-			},
-			$html
-		);
+		if ( ! empty( $options['lazy_load'] ) ) {
+			$lcp_count = isset( $options['lcp_exclude_count'] ) ? (int) $options['lcp_exclude_count'] : 1;
+			$counter   = 0;
+
+			$html = preg_replace_callback(
+				'/<img\b([^>]*)/is',
+				function ( $matches ) use ( &$counter, $lcp_count ) {
+					$img_attributes = $matches[1];
+					$counter++;
+
+					// Exclude first N images for LCP optimization
+					if ( $counter <= $lcp_count ) {
+						return $matches[0];
+					}
+
+					// Skip if loading attribute is already present
+					if ( false === strpos( $img_attributes, ' loading=' ) ) {
+						$img_attributes .= ' loading="lazy"';
+					}
+					return '<img' . $img_attributes;
+				},
+				$html
+			);
+		}
 
 		// 2. Process <iframe> tags
-		$html = preg_replace_callback(
-			'/<iframe\b([^>]*)/is',
-			function ( $matches ) {
-				$iframe_attributes = $matches[1];
-				// Skip if loading attribute is already present
-				if ( false === strpos( $iframe_attributes, ' loading=' ) ) {
-					$iframe_attributes .= ' loading="lazy"';
-				}
-				return '<iframe' . $iframe_attributes;
-			},
-			$html
-		);
+		if ( ! empty( $options['lazy_load_iframes'] ) ) {
+			$html = preg_replace_callback(
+				'/<iframe\b([^>]*)/is',
+				function ( $matches ) {
+					$iframe_attributes = $matches[1];
+					// Skip if loading attribute is already present
+					if ( false === strpos( $iframe_attributes, ' loading=' ) ) {
+						$iframe_attributes .= ' loading="lazy"';
+					}
+					return '<iframe' . $iframe_attributes;
+				},
+				$html
+			);
+		}
 
 		// 3. Process <video> tags
-		$html = preg_replace_callback(
-			'/<video\b([^>]*)/is',
-			function ( $matches ) {
-				$video_attributes = $matches[1];
-				// Skip if preload attribute is already present
-				if ( false === strpos( $video_attributes, ' preload=' ) ) {
-					$video_attributes .= ' preload="none"';
-				}
-				return '<video' . $video_attributes;
-			},
-			$html
-		);
+		if ( ! empty( $options['lazy_load'] ) ) {
+			$html = preg_replace_callback(
+				'/<video\b([^>]*)/is',
+				function ( $matches ) {
+					$video_attributes = $matches[1];
+					// Skip if preload attribute is already present
+					if ( false === strpos( $video_attributes, ' preload=' ) ) {
+						$video_attributes .= ' preload="none"';
+					}
+					return '<video' . $video_attributes;
+				},
+				$html
+			);
+		}
 
 		return $html;
 	}
@@ -291,25 +219,7 @@ class SPDR_Media {
 		return $html;
 	}
 
-	/**
-	 * Render heartbeat behavior dropdown settings field.
-	 *
-	 * @param array $args Field arguments.
-	 */
-	public function field_heartbeat_callback( $args ) {
-		$options   = get_option( 'spdr_settings' );
-		$value     = ! empty( $options['heartbeat_behavior'] ) ? $options['heartbeat_behavior'] : 'default';
-		$label_for = $args['label_for'];
-		?>
-		<select id="<?php echo esc_attr( $label_for ); ?>" name="spdr_settings[<?php echo esc_attr( $label_for ); ?>]" class="spdr-select-dropdown">
-			<option value="default" <?php selected( $value, 'default' ); ?>><?php esc_html_e( 'Default WordPress Behavior', 'speed-doctor' ); ?></option>
-			<option value="throttle" <?php selected( $value, 'throttle' ); ?>><?php esc_html_e( 'Throttle (Increase interval to 60s)', 'speed-doctor' ); ?></option>
-			<option value="disable_frontend" <?php selected( $value, 'disable_frontend' ); ?>><?php esc_html_e( 'Disable on Front-end Only', 'speed-doctor' ); ?></option>
-			<option value="disable_everywhere" <?php selected( $value, 'disable_everywhere' ); ?>><?php esc_html_e( 'Disable Everywhere', 'speed-doctor' ); ?></option>
-		</select>
-		<p class="spdr-field-desc"><?php echo esc_html( $args['description'] ); ?></p>
-		<?php
-	}
+
 
 	/**
 	 * Hook Heartbeat settings and filters.
@@ -429,5 +339,72 @@ class SPDR_Media {
 			}
 		}
 		return $urls;
+	}
+
+	/**
+	 * Automatically append width and height attributes to local images if missing.
+	 *
+	 * @param string $html Original HTML.
+	 * @return string Processed HTML.
+	 */
+	public function add_image_dimensions( $html ) {
+		$options = get_option( 'spdr_settings' );
+		if ( empty( $options['add_img_dimensions'] ) ) {
+			return $html;
+		}
+
+		$home_url = home_url();
+
+		$html = preg_replace_callback(
+			'/<img\b([^>]*)/is',
+			function( $matches ) use ( $home_url ) {
+				$attributes = $matches[1];
+
+				// Skip if both width and height are already present
+				if ( false !== strpos( $attributes, ' width=' ) && false !== strpos( $attributes, ' height=' ) ) {
+					return $matches[0];
+				}
+
+				// Extract src attribute
+				if ( preg_match( '/src=[\'"]([^\'"]+)[\'"]/i', $attributes, $src_matches ) ) {
+					$src = $src_matches[1];
+
+					// Check if local image
+					if ( 0 === strpos( $src, $home_url ) || 0 === strpos( $src, '/' ) ) {
+						$clean_url = strtok( $src, '?' );
+
+						// Get local path
+						if ( 0 === strpos( $clean_url, $home_url ) ) {
+							$local_path = ABSPATH . ltrim( str_replace( $home_url, '', $clean_url ), '/' );
+						} else {
+							$local_path = ABSPATH . ltrim( $clean_url, '/' );
+						}
+
+						$local_path = wp_normalize_path( $local_path );
+
+						if ( file_exists( $local_path ) && is_readable( $local_path ) ) {
+							$size = getimagesize( $local_path );
+							if ( $size ) {
+								$width = $size[0];
+								$height = $size[1];
+
+								// Inject missing dimensions
+								if ( false === strpos( $attributes, ' width=' ) ) {
+									$attributes .= ' width="' . intval( $width ) . '"';
+								}
+								if ( false === strpos( $attributes, ' height=' ) ) {
+									$attributes .= ' height="' . intval( $height ) . '"';
+								}
+							}
+						}
+					}
+				}
+
+				return '<img' . $attributes;
+			},
+			$html
+		);
+
+		return $html;
 	}
 }

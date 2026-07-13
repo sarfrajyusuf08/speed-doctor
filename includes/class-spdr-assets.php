@@ -40,8 +40,6 @@ class SPDR_Assets {
 	 * Constructor.
 	 */
 	private function __construct() {
-		add_action( 'admin_init', array( $this, 'register_assets_settings' ) );
-		
 		// If minification is enabled, hook into output buffering for non-cached sessions as well
 		add_action( 'template_redirect', array( $this, 'maybe_start_minifier_buffer' ), 2 );
 
@@ -50,76 +48,11 @@ class SPDR_Assets {
 	}
 
 	/**
-	 * Register Settings API fields for Asset Optimization.
-	 */
-	public function register_assets_settings() {
-		add_settings_field(
-			'spdr_field_minify_html',
-			esc_html__( 'HTML Minification', 'speed-doctor' ),
-			array( SPDR::get_instance(), 'field_checkbox_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'minify_html',
-				'description' => esc_html__( 'Strip whitespace, comments, and empty lines from output HTML.', 'speed-doctor' ),
-			)
-		);
-
-		add_settings_field(
-			'spdr_field_minify_css',
-			esc_html__( 'CSS Minification', 'speed-doctor' ),
-			array( SPDR::get_instance(), 'field_checkbox_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'minify_css',
-				'description' => esc_html__( 'Minify inline style blocks and enqueued local CSS stylesheets.', 'speed-doctor' ),
-			)
-		);
-
-		add_settings_field(
-			'spdr_field_minify_js',
-			esc_html__( 'JS Minification', 'speed-doctor' ),
-			array( SPDR::get_instance(), 'field_checkbox_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'minify_js',
-				'description' => esc_html__( 'Minify enqueued JavaScript files.', 'speed-doctor' ),
-			)
-		);
-
-		add_settings_field(
-			'spdr_field_combine_js',
-			esc_html__( 'JS Combination', 'speed-doctor' ),
-			array( SPDR::get_instance(), 'field_checkbox_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'combine_js',
-				'description' => esc_html__( 'Combine enqueued local JavaScript files into a single asset to reduce HTTP requests.', 'speed-doctor' ),
-			)
-		);
-
-		add_settings_field(
-			'spdr_field_defer_js',
-			esc_html__( 'Defer Non-Critical JavaScript', 'speed-doctor' ),
-			array( SPDR::get_instance(), 'field_checkbox_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'defer_js',
-				'description' => esc_html__( 'Load JavaScript files asynchronously and execute them after page parsing to eliminate render-blocking scripts.', 'speed-doctor' ),
-			)
-		);
-	}
-
-	/**
 	 * Hook minifier into output buffer if page cache is disabled but minification is active.
 	 */
 	public function maybe_start_minifier_buffer() {
 		$options = get_option( 'spdr_settings' );
-		if ( empty( $options['minify_html'] ) && empty( $options['minify_css'] ) && empty( $options['minify_js'] ) && empty( $options['combine_js'] ) ) {
+		if ( empty( $options['minify_html'] ) && empty( $options['minify_css'] ) && empty( $options['minify_js'] ) && empty( $options['combine_js'] ) && empty( $options['delay_js'] ) ) {
 			return;
 		}
 
@@ -145,6 +78,9 @@ class SPDR_Assets {
 		}
 		if ( ! empty( $options['minify_js'] ) || ! empty( $options['combine_js'] ) ) {
 			$buffer = $this->process_html_js( $buffer );
+		}
+		if ( ! empty( $options['delay_js'] ) ) {
+			$buffer = $this->delay_javascript( $buffer );
 		}
 		if ( ! empty( $options['minify_html'] ) ) {
 			$buffer = self::minify_html( $buffer );
@@ -191,6 +127,18 @@ class SPDR_Assets {
 			function( $matches ) use ( $assets_dir, $assets_url ) {
 				$link_tag = $matches[0];
 				$css_url  = $matches[1];
+
+				// Check custom user CSS exclusions
+				$options = get_option( 'spdr_settings' );
+				$exclude_css = isset( $options['exclude_css'] ) ? trim( $options['exclude_css'] ) : '';
+				if ( ! empty( $exclude_css ) ) {
+					$excludes = array_filter( array_map( 'trim', explode( "\n", $exclude_css ) ) );
+					foreach ( $excludes as $exclude ) {
+						if ( ! empty( $exclude ) && false !== strpos( $css_url, $exclude ) ) {
+							return $link_tag;
+						}
+					}
+				}
 
 				// Skip external files not matching home URL
 				$home_url = home_url();
@@ -274,9 +222,25 @@ class SPDR_Assets {
 		$local_scripts = array();
 		$home_url      = home_url();
 
+		// Check custom user JS exclusions
+		$exclude_js = isset( $options['exclude_js'] ) ? trim( $options['exclude_js'] ) : '';
+		$excludes = ! empty( $exclude_js ) ? array_filter( array_map( 'trim', explode( "\n", $exclude_js ) ) ) : array();
+
 		foreach ( $matches[1] as $index => $script_url ) {
 			// Skip external scripts
 			if ( 0 !== strpos( $script_url, $home_url ) && 0 !== strpos( $script_url, '/' ) ) {
+				continue;
+			}
+
+			// Exclusions check
+			$excluded = false;
+			foreach ( $excludes as $exclude ) {
+				if ( ! empty( $exclude ) && false !== strpos( $script_url, $exclude ) ) {
+					$excluded = true;
+					break;
+				}
+			}
+			if ( $excluded ) {
 				continue;
 			}
 
@@ -519,6 +483,18 @@ class SPDR_Assets {
 			}
 		}
 
+		// Check custom user JS exclusions
+		$options = get_option( 'spdr_settings' );
+		$exclude_js = isset( $options['exclude_js'] ) ? trim( $options['exclude_js'] ) : '';
+		if ( ! empty( $exclude_js ) ) {
+			$excludes = array_filter( array_map( 'trim', explode( "\n", $exclude_js ) ) );
+			foreach ( $excludes as $exclude ) {
+				if ( ! empty( $exclude ) && false !== strpos( $src, $exclude ) ) {
+					return $tag;
+				}
+			}
+		}
+
 		// Add defer attribute safely if not already present.
 		if ( false === strpos( $tag, ' src=' ) ) {
 			return $tag;
@@ -529,5 +505,90 @@ class SPDR_Assets {
 		}
 
 		return $tag;
+	}
+
+	/**
+	 * Rewrite JS script tags to delay their execution until user interaction.
+	 *
+	 * @param string $html Original HTML.
+	 * @return string Processed HTML.
+	 */
+	public function delay_javascript( $html ) {
+		$options = get_option( 'spdr_settings' );
+		if ( empty( $options['delay_js'] ) ) {
+			return $html;
+		}
+
+		// 1. Rewrite script tags with src (exclude critical handles like jquery)
+		$exclude_js = isset( $options['exclude_js'] ) ? trim( $options['exclude_js'] ) : '';
+		$excludes = ! empty( $exclude_js ) ? array_filter( array_map( 'trim', explode( "\n", $exclude_js ) ) ) : array();
+		
+		// Add default critical handles to keep render-safe
+		$excludes[] = 'jquery';
+		$excludes[] = 'jquery-core';
+		$excludes[] = 'jquery-migrate';
+		$excludes[] = 'admin-bar';
+		$excludes[] = 'spdr-toast';
+
+		// Match all script tags with src
+		$regex_scripts = '/<script\s+[^>]*src=[\'"]([^\'"]+\.js(?:\?[^\'"]*)?)[\'"][^>]*>\s*<\/script>/is';
+		$html = preg_replace_callback(
+			$regex_scripts,
+			function( $matches ) use ( $excludes ) {
+				$tag = $matches[0];
+				$src = $matches[1];
+
+				foreach ( $excludes as $exclude ) {
+					if ( ! empty( $exclude ) && false !== strpos( $src, $exclude ) ) {
+						return $tag;
+					}
+				}
+
+				// Convert to delayed script
+				$delayed_tag = str_replace( ' src=', ' data-spdr-src=', $tag );
+				// Remove async or defer if present
+				$delayed_tag = str_replace( array( ' async', ' defer' ), '', $delayed_tag );
+				return $delayed_tag;
+			},
+			$html
+		);
+
+		// 2. Inject Delay JS Execution script before </body>
+		$loader_script = '
+<script id="spdr-delay-js-loader">
+(function() {
+	var interacted = false;
+	function triggerDelayedScripts() {
+		if (interacted) return;
+		interacted = true;
+		var events = ["scroll", "click", "mousemove", "keydown", "touchstart"];
+		events.forEach(function(e) { window.removeEventListener(e, triggerDelayedScripts); });
+		
+		var scripts = document.querySelectorAll("script[data-spdr-src]");
+		var index = 0;
+		function loadNext() {
+			if (index >= scripts.length) return;
+			var oldScript = scripts[index++];
+			var newScript = document.createElement("script");
+			Array.from(oldScript.attributes).forEach(function(attr) {
+				if (attr.name !== "data-spdr-src" && attr.name !== "src") {
+					newScript.setAttribute(attr.name, attr.value);
+				}
+			});
+			newScript.src = oldScript.getAttribute("data-spdr-src");
+			newScript.onload = loadNext;
+			newScript.onerror = loadNext;
+			oldScript.parentNode.replaceChild(newScript, oldScript);
+		}
+		loadNext();
+	}
+	var events = ["scroll", "click", "mousemove", "keydown", "touchstart"];
+	events.forEach(function(e) { window.addEventListener(e, triggerDelayedScripts, { passive: true }); });
+})();
+</script>';
+
+		$html = str_replace( '</body>', $loader_script . "\n" . '</body>', $html );
+
+		return $html;
 	}
 }
