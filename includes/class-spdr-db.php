@@ -41,30 +41,12 @@ class SPDR_DB {
 	 */
 	private function __construct() {
 		// Initialize database actions.
-		add_action( 'admin_init', array( $this, 'register_db_settings' ) );
 		add_action( 'admin_init', array( $this, 'handle_manual_cleanup' ) );
 		add_action( 'admin_notices', array( $this, 'show_db_notices' ) );
 
 		// Cron actions.
 		add_filter( 'cron_schedules', array( $this, 'add_weekly_cron_schedule' ) );
 		add_action( 'spdr_db_cleanup_cron', array( $this, 'run_automated_optimization' ) );
-	}
-
-	/**
-	 * Register Settings API fields for Database Doctor.
-	 */
-	public function register_db_settings() {
-		add_settings_field(
-			'spdr_field_db_optimization',
-			esc_html__( 'Database Doctor', 'speed-doctor' ),
-			array( SPDR::get_instance(), 'field_checkbox_callback' ),
-			'speed-doctor',
-			'spdr_settings_section_general',
-			array(
-				'label_for'   => 'db_optimization',
-				'description' => esc_html__( 'Enable database cleanup routines and optimizations.', 'speed-doctor' ),
-			)
-		);
 	}
 
 	/**
