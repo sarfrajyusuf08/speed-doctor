@@ -52,7 +52,11 @@ class SPDR_Cache {
 		add_action( 'spdr_clean_expired_cache', array( $this, 'clean_expired_cache' ) );
 
 		// Purge hooks.
-		add_action( 'save_post', array( $this, 'purge_post_cache' ) );
+		add_action( 'save_post', array( SPDR_Purge_Helper::get_instance(), 'purge_post_and_related_archives' ) );
+		add_action( 'comment_post', array( $this, 'comment_purge_trigger' ), 10, 2 );
+		add_action( 'transition_comment_status', array( $this, 'comment_status_purge_trigger' ), 10, 3 );
+		add_action( 'edit_terms', array( $this, 'term_purge_trigger' ), 10, 2 );
+		add_action( 'delete_term', array( $this, 'term_purge_trigger' ), 10, 2 );
 		add_action( 'admin_bar_menu', array( $this, 'add_admin_bar_purge_button' ), 99 );
 		add_action( 'admin_init', array( $this, 'handle_admin_bar_purge' ) );
 		add_action( 'admin_notices', array( $this, 'show_purge_notice' ) );
@@ -299,52 +303,46 @@ class SPDR_Cache {
 	}
 
 	/**
-	 * Purge cache file for a specific post when updated.
+	 * Callback to purge cache when a comment is approved or status changes.
 	 *
-	 * @param int $post_id Post ID.
+	 * @param int $comment_id Comment ID.
+	 * @param int|string $comment_approved Comment approval status.
 	 */
-	public function purge_post_cache( $post_id ) {
-		if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
-			return;
-		}
-
-		$url = get_permalink( $post_id );
-		if ( ! $url ) {
-			return;
-		}
-
-		$url_path  = wp_parse_url( $url, PHP_URL_PATH );
-		$path_slug = trim( $url_path, '/' );
-
-		if ( empty( $path_slug ) ) {
-			// Homepage
-			$dir = wp_normalize_path( $this->cache_dir . 'html/' );
-			$files = glob( $dir . 'index*.html' );
-			if ( is_array( $files ) ) {
-				foreach ( $files as $file ) {
-					unlink( $file );
-				}
-			}
-		} else {
-			// Subpage folder
-			$dir = wp_normalize_path( $this->cache_dir . 'html/' . $path_slug . '/' );
-			if ( is_dir( $dir ) ) {
-				$files = glob( $dir . 'index*.html' );
-				if ( is_array( $files ) ) {
-					foreach ( $files as $file ) {
-						unlink( $file );
-					}
-				}
+	public function comment_purge_trigger( $comment_id, $comment_approved ) {
+		if ( 1 === $comment_approved || 'approve' === $comment_approved ) {
+			$comment = get_comment( $comment_id );
+			if ( $comment && ! empty( $comment->comment_post_ID ) ) {
+				SPDR_Purge_Helper::get_instance()->purge_post_and_related_archives( $comment->comment_post_ID );
 			}
 		}
+	}
 
-		// Also clear homepage cache
-		$home_dir = wp_normalize_path( $this->cache_dir . 'html/' );
-		$home_files = glob( $home_dir . 'index*.html' );
-		if ( is_array( $home_files ) ) {
-			foreach ( $home_files as $file ) {
-				unlink( $file );
+	/**
+	 * Callback to purge cache when a comment status is transitioned.
+	 *
+	 * @param string $new_status New status.
+	 * @param string $old_status Old status.
+	 * @param object $comment Comment object.
+	 */
+	public function comment_status_purge_trigger( $new_status, $old_status, $comment ) {
+		if ( 'approved' === $new_status || 'approved' === $old_status ) {
+			if ( $comment && ! empty( $comment->comment_post_ID ) ) {
+				SPDR_Purge_Helper::get_instance()->purge_post_and_related_archives( $comment->comment_post_ID );
 			}
+		}
+	}
+
+	/**
+	 * Callback to purge cache when category/tag terms are modified.
+	 *
+	 * @param int $term_id Term ID.
+	 * @param string $taxonomy Taxonomy slug.
+	 */
+	public function term_purge_trigger( $term_id, $taxonomy ) {
+		$term_link = get_term_link( $term_id, $taxonomy );
+		if ( $term_link && ! is_wp_error( $term_link ) ) {
+			SPDR_Purge_Helper::get_instance()->purge_url_and_pagination( $term_link );
+			SPDR_Purge_Helper::get_instance()->purge_url_and_pagination( home_url( '/' ) );
 		}
 	}
 
