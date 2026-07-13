@@ -43,6 +43,8 @@ class SPDR_Admin {
 		add_action( 'wp_ajax_spdr_save_settings', array( $this, 'ajax_save_settings' ) );
 		add_action( 'wp_ajax_spdr_db_cleanup', array( $this, 'ajax_db_cleanup' ) );
 		add_action( 'wp_ajax_spdr_purge_cache', array( $this, 'ajax_purge_cache' ) );
+		add_action( 'wp_ajax_spdr_restart_preload', array( $this, 'ajax_restart_preload' ) );
+		add_action( 'wp_ajax_spdr_get_preload_status', array( $this, 'ajax_get_preload_status' ) );
 	}
 
 	/**
@@ -109,9 +111,12 @@ class SPDR_Admin {
 					'exclude_js'          => '',
 					'delay_js'            => 0,
 					'lazy_load_iframes'   => 0,
-					'lcp_exclude_count'   => 1,
-					'add_img_dimensions'  => 0,
-					'db_cleanup_schedule' => 'disabled',
+					'lcp_exclude_count'        => 1,
+					'add_img_dimensions'       => 0,
+					'db_cleanup_schedule'      => 'disabled',
+					'preload_enable'           => 0,
+					'preload_pages_per_minute' => 10,
+					'preload_types'            => array( 'homepage', 'posts', 'pages' ),
 				),
 			)
 		);
@@ -139,6 +144,7 @@ class SPDR_Admin {
 			'delay_js',
 			'lazy_load_iframes',
 			'add_img_dimensions',
+			'preload_enable',
 		);
 
 		foreach ( $checkbox_keys as $key ) {
@@ -158,6 +164,11 @@ class SPDR_Admin {
 
 		$allowed_schedules = array( 'disabled', 'daily', 'weekly' );
 		$sanitized['db_cleanup_schedule'] = isset( $input['db_cleanup_schedule'] ) && in_array( $input['db_cleanup_schedule'], $allowed_schedules, true ) ? $input['db_cleanup_schedule'] : 'disabled';
+
+		$sanitized['preload_pages_per_minute'] = isset( $input['preload_pages_per_minute'] ) ? intval( $input['preload_pages_per_minute'] ) : 10;
+		$allowed_types = array( 'homepage', 'posts', 'pages', 'categories', 'tags' );
+		$input_types = isset( $input['preload_types'] ) ? (array) $input['preload_types'] : array();
+		$sanitized['preload_types'] = array_values( array_intersect( $input_types, $allowed_types ) );
 
 		return $sanitized;
 	}
@@ -180,6 +191,17 @@ class SPDR_Admin {
 
 		// Configure rewrite rules and directories immediately.
 		SPDR_Cache::get_instance()->maybe_setup_cache_dir();
+
+		// Configure preload cron job immediately.
+		if ( ! empty( $sanitized['preload_enable'] ) ) {
+			if ( ! wp_next_scheduled( 'spdr_preload_cron_job' ) ) {
+				wp_schedule_event( time(), 'spdr_one_minute', 'spdr_preload_cron_job' );
+			}
+			// Trigger initial step.
+			SPDR_Preload::get_instance()->run_preload_step();
+		} else {
+			wp_clear_scheduled_hook( 'spdr_preload_cron_job' );
+		}
 
 		if ( ! empty( $old_options['page_cache'] ) && empty( $sanitized['page_cache'] ) ) {
 			SPDR_Cache::get_instance()->purge_all_cache();
@@ -263,5 +285,49 @@ class SPDR_Admin {
 		} else {
 			wp_send_json_error( array( 'message' => esc_html__( 'Failed to clear cache.', 'speed-doctor' ) ) );
 		}
+	}
+
+	/**
+	 * AJAX callback to manually restart cache preloading.
+	 */
+	public function ajax_restart_preload() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'You do not have permission to perform this action.', 'speed-doctor' ) ) );
+		}
+
+		check_ajax_referer( 'spdr_settings_group-options', 'nonce' );
+
+		SPDR_Preload::get_instance()->restart_preload();
+
+		wp_send_json_success(
+			array(
+				'message' => esc_html__( 'Preloader restarted successfully!', 'speed-doctor' ),
+				'state'   => get_option( 'spdr_preload_state' ),
+			)
+		);
+	}
+
+	/**
+	 * AJAX callback to fetch cache preloader progress.
+	 */
+	public function ajax_get_preload_status() {
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( array( 'message' => esc_html__( 'You do not have permission to perform this action.', 'speed-doctor' ) ) );
+		}
+
+		check_ajax_referer( 'spdr_settings_group-options', 'nonce' );
+
+		$state = get_option( 'spdr_preload_state' );
+		if ( ! is_array( $state ) ) {
+			$state = array(
+				'queue'         => array(),
+				'current_index' => 0,
+				'total'         => 0,
+				'status'        => 'idle',
+				'last_run'      => 0,
+			);
+		}
+
+		wp_send_json_success( $state );
 	}
 }

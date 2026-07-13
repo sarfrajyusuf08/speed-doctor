@@ -46,6 +46,11 @@ function spdr_admin_page_display() {
 	$lcp_exclude_count   = isset( $options['lcp_exclude_count'] ) ? (int) $options['lcp_exclude_count'] : 1;
 	$add_img_dimensions  = ! empty( $options['add_img_dimensions'] ) ? 1 : 0;
 	$db_cleanup_schedule = isset( $options['db_cleanup_schedule'] ) ? $options['db_cleanup_schedule'] : 'disabled';
+
+	// Preloader options
+	$preload_enable           = ! empty( $options['preload_enable'] ) ? 1 : 0;
+	$preload_pages_per_minute = isset( $options['preload_pages_per_minute'] ) ? (int) $options['preload_pages_per_minute'] : 10;
+	$preload_types            = isset( $options['preload_types'] ) ? (array) $options['preload_types'] : array( 'homepage', 'posts', 'pages' );
 	?>
 	<div class="wrap spdr-admin-wrap" id="spdr-wrap">
 		<!-- Theme Detection Script to avoid flash of dark mode (FOUC) -->
@@ -250,6 +255,81 @@ function spdr_admin_page_display() {
 									<option value="259200" <?php selected( $cache_lifespan, 259200 ); ?>><?php esc_html_e( '3 Days', 'speed-doctor' ); ?></option>
 									<option value="604800" <?php selected( $cache_lifespan, 604800 ); ?>><?php esc_html_e( '7 Days', 'speed-doctor' ); ?></option>
 								</select>
+							</div>
+						</div>
+
+						<div class="spdr-section-separator" style="margin: 25px 0; border-top: 1px solid rgba(255,255,255,0.08);"></div>
+						
+						<h3><?php echo esc_html__( 'Cache Preloader Engine', 'speed-doctor' ); ?></h3>
+						<p class="panel-desc"><?php echo esc_html__( 'Preload crawls your site structure to automatically generate static HTML cache files in the background, ensuring pages load warm for your first visitors.', 'speed-doctor' ); ?></p>
+						
+						<div class="spdr-form-grid">
+							<!-- Enable Preloader -->
+							<div class="spdr-option-row">
+								<div class="spdr-option-info">
+									<label class="spdr-option-label" for="preload_enable"><?php echo esc_html__( 'Enable Preloader', 'speed-doctor' ); ?></label>
+									<p class="spdr-field-desc"><?php echo esc_html__( 'Schedule background WP-Cron preloading jobs.', 'speed-doctor' ); ?></p>
+								</div>
+								<label class="spdr-toggle-switch">
+									<input type="checkbox" id="preload_enable" name="spdr_settings[preload_enable]" value="1" <?php checked( 1, $preload_enable ); ?> />
+									<span class="spdr-slider"></span>
+								</label>
+							</div>
+
+							<!-- Preload Crawl Speed -->
+							<div class="spdr-option-row select-row">
+								<div class="spdr-option-info">
+									<label class="spdr-option-label" for="preload_pages_per_minute"><?php echo esc_html__( 'Preload Crawl Rate', 'speed-doctor' ); ?></label>
+									<p class="spdr-field-desc"><?php echo esc_html__( 'Specify the number of pages crawled per minute (adjust to save CPU).', 'speed-doctor' ); ?></p>
+								</div>
+								<select id="preload_pages_per_minute" name="spdr_settings[preload_pages_per_minute]" class="spdr-select-dropdown">
+									<option value="4" <?php selected( $preload_pages_per_minute, 4 ); ?>><?php esc_html_e( '4 Pages/Min (Recommended for Shared Hosting)', 'speed-doctor' ); ?></option>
+									<option value="6" <?php selected( $preload_pages_per_minute, 6 ); ?>><?php esc_html_e( '6 Pages/Min', 'speed-doctor' ); ?></option>
+									<option value="10" <?php selected( $preload_pages_per_minute, 10 ); ?>><?php esc_html_e( '10 Pages/Min (Default)', 'speed-doctor' ); ?></option>
+									<option value="15" <?php selected( $preload_pages_per_minute, 15 ); ?>><?php esc_html_e( '15 Pages/Min (Recommended for VPS)', 'speed-doctor' ); ?></option>
+								</select>
+							</div>
+
+							<!-- Preload Target Types -->
+							<div class="spdr-option-row full-width-row" style="grid-column: span 2;">
+								<div class="spdr-option-info">
+									<label class="spdr-option-label"><?php echo esc_html__( 'Preload Target Layouts', 'speed-doctor' ); ?></label>
+									<p class="spdr-field-desc"><?php echo esc_html__( 'Choose what categories of URLs compile into the crawler queue.', 'speed-doctor' ); ?></p>
+									<div class="spdr-checkbox-group" style="display: flex; gap: 20px; margin-top: 10px; flex-wrap: wrap;">
+										<?php
+										$types_list = array(
+											'homepage'   => esc_html__( 'Homepage', 'speed-doctor' ),
+											'posts'      => esc_html__( 'Posts', 'speed-doctor' ),
+											'pages'      => esc_html__( 'Pages', 'speed-doctor' ),
+											'categories' => esc_html__( 'Categories', 'speed-doctor' ),
+											'tags'       => esc_html__( 'Tags', 'speed-doctor' ),
+										);
+										foreach ( $types_list as $type_key => $type_label ) {
+											$is_checked = in_array( $type_key, $preload_types, true ) ? 'checked' : '';
+											echo '<label style="display: flex; align-items: center; gap: 5px; cursor: pointer; color: rgba(255,255,255,0.8);">';
+											echo '<input type="checkbox" name="spdr_settings[preload_types][]" value="' . esc_attr( $type_key ) . '" ' . $is_checked . ' />';
+											echo esc_html( $type_label );
+											echo '</label>';
+										}
+										?>
+									</div>
+								</div>
+							</div>
+
+							<!-- Preloader Live Progress Widget -->
+							<div class="spdr-card spdr-preload-status-card full-width-row" style="grid-column: span 2; margin-top: 15px; background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 15px; display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 20px;">
+								<div>
+									<h4 style="margin: 0 0 5px 0; font-size: 14px; color: #fff;"><?php echo esc_html__( 'Preload Crawl Status', 'speed-doctor' ); ?></h4>
+									<div class="spdr-preload-progress-text" style="font-size: 13px; color: rgba(255,255,255,0.7); margin-bottom: 8px;">
+										<?php echo esc_html__( 'Checking status...', 'speed-doctor' ); ?>
+									</div>
+									<div class="spdr-progress-bar-bg" style="background: rgba(255,255,255,0.1); border-radius: 4px; height: 8px; width: 100%; overflow: hidden; position: relative;">
+										<div class="spdr-progress-bar-fill" style="background: #1890ff; width: 0%; height: 100%; transition: width 0.3s ease;"></div>
+									</div>
+								</div>
+								<div>
+									<button type="button" class="button button-secondary spdr-restart-preload-btn"><?php echo esc_html__( 'Restart Preload', 'speed-doctor' ); ?></button>
+								</div>
 							</div>
 						</div>
 					</div>
@@ -937,6 +1017,90 @@ function spdr_admin_page_display() {
 						});
 					})(dbButtons[j]);
 				}
+
+				// Cache Preloader Logic
+				var preloadFill = document.querySelector('.spdr-progress-bar-fill');
+				var preloadText = document.querySelector('.spdr-preload-progress-text');
+				var restartPreloadBtn = document.querySelector('.spdr-restart-preload-btn');
+
+				function updatePreloadProgress() {
+					if (!preloadText || !preloadFill) return;
+
+					var data = new URLSearchParams();
+					data.append('action', 'spdr_get_preload_status');
+					data.append('nonce', '<?php echo wp_create_nonce( "spdr_settings_group-options" ); ?>');
+
+					fetch(ajaxurl, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+						body: data.toString()
+					})
+					.then(function(res) { return res.json(); })
+					.then(function(res) {
+						if (res.success) {
+							var state = res.data;
+							var total = parseInt(state.total) || 0;
+							var current = parseInt(state.current_index) || 0;
+							var status = state.status || 'idle';
+							var percent = total > 0 ? Math.round((current / total) * 100) : 0;
+
+							preloadFill.style.width = percent + '%';
+
+							if (status === 'active') {
+								preloadText.innerHTML = 'Preloading cache: <strong>' + current + '</strong> / <strong>' + total + '</strong> pages crawled (' + percent + '% complete).';
+								preloadFill.style.backgroundColor = '#1890ff';
+							} else if (status === 'finished') {
+								preloadText.innerHTML = 'Preload completed! Cached <strong>' + total + '</strong> pages successfully.';
+								preloadFill.style.backgroundColor = '#52c41a';
+							} else {
+								preloadText.innerHTML = 'Preload crawler is currently idle or inactive.';
+								preloadFill.style.backgroundColor = 'rgba(255,255,255,0.2)';
+							}
+						}
+					})
+					.catch(function(err) {
+						console.error('Failed to fetch preload status', err);
+					});
+				}
+
+				if (restartPreloadBtn) {
+					restartPreloadBtn.addEventListener('click', function(e) {
+						e.preventDefault();
+						var originalText = restartPreloadBtn.textContent;
+						restartPreloadBtn.textContent = 'Starting...';
+						restartPreloadBtn.disabled = true;
+
+						var data = new URLSearchParams();
+						data.append('action', 'spdr_restart_preload');
+						data.append('nonce', '<?php echo wp_create_nonce( "spdr_settings_group-options" ); ?>');
+
+						fetch(ajaxurl, {
+							method: 'POST',
+							headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+							body: data.toString()
+						})
+						.then(function(res) { return res.json(); })
+						.then(function(res) {
+							restartPreloadBtn.textContent = originalText;
+							restartPreloadBtn.disabled = false;
+							if (res.success) {
+								showToast(res.data.message, true);
+								updatePreloadProgress();
+							} else {
+								showToast(res.data.message || 'Failed to start preloading.', false);
+							}
+						})
+						.catch(function() {
+							restartPreloadBtn.textContent = originalText;
+							restartPreloadBtn.disabled = false;
+							showToast('Connection error occurred while starting preload.', false);
+						});
+					});
+				}
+
+				// Fetch status initially and poll every 10 seconds
+				updatePreloadProgress();
+				setInterval(updatePreloadProgress, 10000);
 
 			} catch (err) {
 				console.error("Speed Doctor JS Error:", err);

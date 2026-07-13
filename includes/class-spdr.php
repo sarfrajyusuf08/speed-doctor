@@ -44,6 +44,7 @@ class SPDR {
 	 */
 	private function init_hooks() {
 		add_action( 'plugins_loaded', array( $this, 'init' ) );
+		add_filter( 'cron_schedules', array( $this, 'add_one_minute_cron_schedule' ) );
 	}
 
 	/**
@@ -58,6 +59,7 @@ class SPDR {
 		require_once SPDR_PATH . 'includes/class-spdr-admin.php';
 		require_once SPDR_PATH . 'includes/class-spdr-htaccess.php';
 		require_once SPDR_PATH . 'includes/class-spdr-purge-helper.php';
+		require_once SPDR_PATH . 'includes/class-spdr-preload.php';
 	}
 
 	/**
@@ -69,6 +71,7 @@ class SPDR {
 		SPDR_DB::get_instance();
 		SPDR_Assets::get_instance();
 		SPDR_Media::get_instance();
+		SPDR_Preload::get_instance();
 
 		// Load admin configurations on administration screens and AJAX triggers
 		if ( is_admin() || ( defined( 'DOING_AJAX' ) && DOING_AJAX ) ) {
@@ -105,5 +108,16 @@ class SPDR {
 		$units = array( 'B', 'KB', 'MB', 'GB', 'TB' );
 		$i     = floor( log( $bytes, 1024 ) );
 		return round( $bytes / pow( 1024, $i ), 2 ) . ' ' . $units[ $i ];
+	}
+
+	/**
+	 * Add custom 1-minute cron schedule.
+	 */
+	public function add_one_minute_cron_schedule( $schedules ) {
+		$schedules['spdr_one_minute'] = array(
+			'interval' => 60,
+			'display'  => esc_html__( 'Every 1 Minute', 'speed-doctor' ),
+		);
+		return $schedules;
 	}
 }
