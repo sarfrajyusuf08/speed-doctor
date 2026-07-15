@@ -56,6 +56,15 @@ class SPDR_Htaccess {
 		$mobile_cache = ! empty( $options['mobile_cache'] ) ? 1 : 0;
 		$logged_in_cache = ! empty( $options['logged_in_cache'] ) ? 1 : 0;
 
+		// Calculate server-side absolute caching folder path
+		$cache_dir_path = wp_normalize_path( WP_CONTENT_DIR . '/cache/speed-doctor/html/' );
+
+		// Calculate relative subdirectory prefix and target path
+		$site_path       = wp_parse_url( home_url(), PHP_URL_PATH );
+		$site_path_clean = $site_path ? '/' . trim( $site_path, '/' ) : '';
+		$sub_dir_prefix  = $site_path_clean ? trim( $site_path_clean, '/' ) . '/' : '';
+		$target_prefix   = rtrim( $site_path_clean, '/' ) . '/wp-content/cache/speed-doctor/html/' . $sub_dir_prefix;
+
 		$rules = array();
 		$rules[] = '<IfModule mod_rewrite.c>';
 		$rules[] = '    RewriteEngine On';
@@ -81,19 +90,19 @@ class SPDR_Htaccess {
 
 		// Rewrite rule for subpages with trailing slash
 		$rules[] = '    # Serve cached pages with trailing slash';
-		$rules[] = '    RewriteCond %{DOCUMENT_ROOT}/wp-content/cache/speed-doctor/html/$1index.html -f';
-		$rules[] = '    RewriteRule ^(.*)/$ "/wp-content/cache/speed-doctor/html/$1index.html" [L]';
+		$rules[] = '    RewriteCond ' . $cache_dir_path . $sub_dir_prefix . '$1index.html -f';
+		$rules[] = '    RewriteRule ^(.*)/$ "' . $target_prefix . '$1index.html" [L]';
 
 		// Rewrite rule for subpages without trailing slash
 		$rules[] = '    # Serve cached pages without trailing slash';
-		$rules[] = '    RewriteCond %{DOCUMENT_ROOT}/wp-content/cache/speed-doctor/html/$1/index.html -f';
-		$rules[] = '    RewriteRule ^(.*)$ "/wp-content/cache/speed-doctor/html/$1/index.html" [L]';
+		$rules[] = '    RewriteCond ' . $cache_dir_path . $sub_dir_prefix . '$1/index.html -f';
+		$rules[] = '    RewriteRule ^(.*)$ "' . $target_prefix . '$1/index.html" [L]';
 
 		// Rewrite rule for homepage
 		$rules[] = '    # Serve homepage cache';
-		$rules[] = '    RewriteCond %{REQUEST_URI} ^/$';
-		$rules[] = '    RewriteCond %{DOCUMENT_ROOT}/wp-content/cache/speed-doctor/html/index.html -f';
-		$rules[] = '    RewriteRule ^$ "/wp-content/cache/speed-doctor/html/index.html" [L]';
+		$rules[] = '    RewriteCond %{REQUEST_URI} ^' . ( $site_path_clean ? $site_path_clean : '' ) . '/?$';
+		$rules[] = '    RewriteCond ' . $cache_dir_path . $sub_dir_prefix . 'index.html -f';
+		$rules[] = '    RewriteRule ^$ "' . $target_prefix . 'index.html" [L]';
 
 		$rules[] = '</IfModule>';
 
