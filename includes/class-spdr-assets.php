@@ -171,6 +171,8 @@ class SPDR_Assets {
 				if ( ! file_exists( $cache_file_path ) ) {
 					$css_content = file_get_contents( $local_path );
 					if ( $css_content ) {
+						// Convert relative asset paths to absolute URLs
+						$css_content = self::rewrite_relative_css_urls( $css_content, $css_url );
 						$minified_css = self::minify_css( $css_content );
 						self::save_cached_asset( $cache_file_path, $minified_css );
 					}
@@ -610,5 +612,75 @@ class SPDR_Assets {
 				file_put_contents( $file_path . '.gz', $gzipped );
 			}
 		}
+	}
+
+	/**
+	 * Rewrite relative URLs inside CSS content to absolute URLs.
+	 *
+	 * @param string $css_content CSS code.
+	 * @param string $css_url Original CSS stylesheet URL.
+	 * @return string CSS with absolute URLs.
+	 */
+	public static function rewrite_relative_css_urls( $css_content, $css_url ) {
+		$css_dir_url = dirname( $css_url ) . '/';
+
+		// Regex to find all url(...) values
+		$regex = '/url\(\s*[\'"]?([^\'\"\)]+)[\'"]?\s*\)/i';
+
+		return preg_replace_callback(
+			$regex,
+			function ( $matches ) use ( $css_dir_url ) {
+				$url = trim( $matches[1] );
+
+				// Skip absolute URLs, protocol-relative, data URIs, or root-relative paths
+				if ( preg_match( '/^(?:https?:)?\/\//i', $url ) || 0 === strpos( $url, 'data:' ) || 0 === strpos( $url, '/' ) || 0 === strpos( $url, '#' ) ) {
+					return $matches[0];
+				}
+
+				// Resolve relative path relative to CSS directory
+				$absolute_url = self::resolve_relative_path( $css_dir_url . $url );
+
+				return 'url("' . esc_url( $absolute_url ) . '")';
+			},
+			$css_content
+		);
+	}
+
+	/**
+	 * Resolve relative segments (like /../ and /./) in a URL path.
+	 *
+	 * @param string $url URL path to resolve.
+	 * @return string Resolved URL.
+	 */
+	private static function resolve_relative_path( $url ) {
+		$parts = wp_parse_url( $url );
+		if ( empty( $parts['path'] ) ) {
+			return $url;
+		}
+
+		$path = $parts['path'];
+		$segments = explode( '/', $path );
+		$resolved = array();
+
+		foreach ( $segments as $segment ) {
+			if ( '.' === $segment || '' === $segment ) {
+				continue;
+			}
+			if ( '..' === $segment ) {
+				array_pop( $resolved );
+			} else {
+				$resolved[] = $segment;
+			}
+		}
+
+		// Rebuild URL
+		$scheme = isset( $parts['scheme'] ) ? $parts['scheme'] . '://' : '';
+		$host   = isset( $parts['host'] ) ? $parts['host'] : '';
+		$port   = isset( $parts['port'] ) ? ':' . $parts['port'] : '';
+		
+		// Add leading slash for path
+		$new_path = '/' . implode( '/', $resolved );
+
+		return $scheme . $host . $port . $new_path;
 	}
 }
